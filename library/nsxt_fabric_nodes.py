@@ -282,14 +282,14 @@ def main():
                                       ['resource_type', 'EdgeNode', ['deployment_config']]])
   fabric_params = get_fabric_params(module.params.copy())
 
+  if fabric_params['resource_type'] == "EdgeNode":
+      vm_params = find_moref_ids_for_deployment(
+          fabric_params['deployment_config']['vm_deployment_config'], module.params['vc_host'], module.params['vc_username'],
+          module.params['vc_password'], module.params['vc_datacenter'])
 
-  vm_params = find_moref_ids_for_deployment(
-      fabric_params['deployment_config']['vm_deployment_config'], module.params['vc_host'], module.params['vc_username'],
-      module.params['vc_password'], module.params['vc_datacenter'])
-
-  # Name to id mapping
-  for key in vm_params.keys():
-      fabric_params['deployment_config']['vm_deployment_config'][key] = vm_params[key]
+      # Name to id mapping
+      for key in vm_params.keys():
+          fabric_params['deployment_config']['vm_deployment_config'][key] = vm_params[key]
 
   state = module.params['state']
   mgr_hostname = module.params['hostname']
