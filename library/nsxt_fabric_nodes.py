@@ -11,6 +11,8 @@
 # EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from __future__ import absolute_import, division, print_function
+
+
 __metaclass__ = type
 
 
@@ -112,9 +114,65 @@ import json, time
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.vmware import vmware_argument_spec, request
 from ansible.module_utils._text import to_native
+from pyVim.connect import SmartConnect
+import requests, ssl
+
+
+def find_morefId(obj_name, obj_list):
+    """
+    Gets an object out of a list (obj_list) whos name matches obj_name.
+    """
+    for o in obj_list:
+        if o.name == obj_name:
+            return o._moId
+    raise Exception("Unable to find object ", obj_name)
+
+
+def find_moref_ids_for_deployment(vm_deployment_config, vc_host, vc_username, vc_password, vc_datacenter):
+    requests.packages.urllib3.disable_warnings()
+    ssl._create_default_https_context = ssl._create_unverified_context
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+
+    deploy_config = dict()
+
+    si = SmartConnect(host=vc_host, user=vc_username, pwd=vc_password)
+    content = si.RetrieveContent()
+    datacenter_obj = None
+
+    # select the right datacenter using its name
+    datacenter_list = content.rootFolder.childEntity
+    for datacenter in datacenter_list:
+        if datacenter.name == vc_datacenter:
+            datacenter_obj = datacenter
+        else:
+            raise Exception("Datacenter not found", vm_deployment_config['compute_id'])
+
+    # translate datastore name
+    datastore_list = datacenter_obj.datastoreFolder.childEntity
+    deploy_config['storage_id'] = find_morefId(vm_deployment_config['storage_id'], datastore_list)
+
+    # translate cluster name (compute_id)
+    cluster_list = datacenter_obj.hostFolder.childEntity
+    deploy_config['compute_id'] = find_morefId(vm_deployment_config['compute_id'], cluster_list)
+
+    # translate all data networks
+    deploy_config['data_network_ids'] = []
+    network_list = datacenter_obj.networkFolder.childEntity
+    for network in vm_deployment_config['data_network_ids']:
+        deploy_config['data_network_ids'].append(find_morefId(network, network_list))
+        #data_network_ids.append(find_morefId(network, network_list))
+
+    # translate management network
+    deploy_config['management_network_id'] = find_morefId(vm_deployment_config['management_network_id'], network_list)
+
+    return deploy_config
+
 
 def get_fabric_params(args=None):
-    args_to_remove = ['state', 'username', 'password', 'port', 'hostname', 'validate_certs']
+    args_to_remove = ['state', 'username', 'password', 'port', 'hostname', 'validate_certs','vc_host','vc_username',
+                      'vc_password', 'vc_datacenter']
     for key in args_to_remove:
         args.pop(key, None)
     for key, value in args.copy().items():
@@ -186,6 +244,10 @@ def main():
                         username=dict(required=False, type='str'),
                         password=dict(required=False, type='str', no_log=True),
                         thumbprint=dict(required=False, type='str', no_log=True)),
+                    vc_host=dict(required=True,type='str'),
+                    vc_username=dict(required=True, type='str'),
+                    vc_password=dict(required=True, type='str',no_log=True),
+                    vc_datacenter=dict(required=True, type='str'),
                     deployment_config=dict(required=False, type='dict',
                         node_user_settings=dict(required=True, type='dict',
                             cli_username=dict(required=False, type='str'),
@@ -219,6 +281,16 @@ def main():
                          required_if=[['resource_type', 'HostNode', ['os_type']],
                                       ['resource_type', 'EdgeNode', ['deployment_config']]])
   fabric_params = get_fabric_params(module.params.copy())
+
+
+  vm_params = find_moref_ids_for_deployment(
+      fabric_params['deployment_config']['vm_deployment_config'], module.params['vc_host'], module.params['vc_username'],
+      module.params['vc_password'], module.params['vc_datacenter'])
+
+  # Name to id mapping
+  for key in vm_params.keys():
+      fabric_params['deployment_config']['vm_deployment_config'][key] = vm_params[key]
+
   state = module.params['state']
   mgr_hostname = module.params['hostname']
   mgr_username = module.params['username']
