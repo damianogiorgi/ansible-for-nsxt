@@ -112,62 +112,9 @@ RETURN = '''# '''
 
 import json, time
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.vmware import vmware_argument_spec, request
+from ansible.module_utils.vmware import vmware_argument_spec, request, find_morefId, find_moref_ids_for_deployment
 from ansible.module_utils._text import to_native
-from pyVim.connect import SmartConnect
-import requests, ssl
 
-
-def find_morefId(obj_name, obj_list):
-    """
-    Gets an object out of a list (obj_list) whos name matches obj_name.
-    """
-    for o in obj_list:
-        if o.name == obj_name:
-            return o._moId
-    raise Exception("Unable to find object ", obj_name)
-
-
-def find_moref_ids_for_deployment(vm_deployment_config, vc_host, vc_username, vc_password, vc_datacenter):
-    requests.packages.urllib3.disable_warnings()
-    ssl._create_default_https_context = ssl._create_unverified_context
-    context = ssl.create_default_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
-
-    deploy_config = dict()
-
-    si = SmartConnect(host=vc_host, user=vc_username, pwd=vc_password)
-    content = si.RetrieveContent()
-    datacenter_obj = None
-
-    # select the right datacenter using its name
-    datacenter_list = content.rootFolder.childEntity
-    for datacenter in datacenter_list:
-        if datacenter.name == vc_datacenter:
-            datacenter_obj = datacenter
-        else:
-            raise Exception("Datacenter not found", vm_deployment_config['compute_id'])
-
-    # translate datastore name
-    datastore_list = datacenter_obj.datastoreFolder.childEntity
-    deploy_config['storage_id'] = find_morefId(vm_deployment_config['storage_id'], datastore_list)
-
-    # translate cluster name (compute_id)
-    cluster_list = datacenter_obj.hostFolder.childEntity
-    deploy_config['compute_id'] = find_morefId(vm_deployment_config['compute_id'], cluster_list)
-
-    # translate all data networks
-    deploy_config['data_network_ids'] = []
-    network_list = datacenter_obj.networkFolder.childEntity
-    for network in vm_deployment_config['data_network_ids']:
-        deploy_config['data_network_ids'].append(find_morefId(network, network_list))
-        #data_network_ids.append(find_morefId(network, network_list))
-
-    # translate management network
-    deploy_config['management_network_id'] = find_morefId(vm_deployment_config['management_network_id'], network_list)
-
-    return deploy_config
 
 
 def get_fabric_params(args=None):
